@@ -1,6 +1,7 @@
 from policy_maker import Policy
+from blocklist import Blocklist
 
-import threading
+import threading, time
 from queue import Queue
 
 # Codici di escape ANSI per i colori
@@ -9,7 +10,7 @@ GREEN = "\033[92m"
 RESET = "\033[0m"
 
 class PolicyEnforcer(threading.Thread):
-    def __init__(self, controller, policy_queue):
+    def __init__(self, controller, policy_queue:Queue, blocklist:Blocklist):
         '''
         Receives policy and enforces it
         '''
@@ -17,14 +18,49 @@ class PolicyEnforcer(threading.Thread):
         self.controller = controller
         self.logger = self.controller.logger
         self.policy_q: Queue = policy_queue
+        self.blocklist: Blocklist = blocklist
 
     def run(self):
+        # Load blocklist and enforce it
+        # At startup the blocklist will contain only the admin-enforced blocks
+        while not self.controller.datapaths:
+            time.sleep(3)
+            
+        for obj in self.blocklist.values():
+            dpid = obj[0]
+            src = obj[1]
+            dst = obj[2] if obj[1] else None
+
+            dp = self.controller.datapaths.get(dpid)
+            parser = dp.ofproto_parser
+            ofp = dp.ofproto
+
+            if dst:
+                match = parser.OFPMatch(eth_src = src, eth_dst = dst)
+                self.logger.info(RED + f"Flow from {src} to {dst} through switch {dpid} blocked from file" + RESET)
+            else:
+                match = parser.OFPMatch(eth_src = src)
+                self.logger.info(RED + f"All flows from {src} through switch {dpid} blocked from file" + RESET)
+            
+            mod = parser.OFPFlowMod(
+                datapath=dp,
+                priority=1000,
+                match=match,
+                instructions=[],
+                command=ofp.OFPFC_ADD
+            )
+            dp.send_msg(mod)
+
         while True:
             ev: Policy = self.policy_q.get()
             dpid = ev.dpid
-            eth_src = ev.eth_src
-            eth_dst = ev.eth_dst
+            src = ev.eth_src
+            dst = ev.eth_dst
             block = ev.block
+
+            # Avoid modifying policies set from external agents
+            if (dpid, src, dst) in self.blocklist.ext_blocked:
+                continue
 
             dp = self.controller.datapaths.get(dpid)
             if not dp:
@@ -32,10 +68,10 @@ class PolicyEnforcer(threading.Thread):
 
             parser = dp.ofproto_parser
             ofp = dp.ofproto
-            match = parser.OFPMatch(eth_src = eth_src, eth_dst = eth_dst)
+            match = parser.OFPMatch(eth_src = src, eth_dst = dst)
 
             if block:
-                self.logger.info(RED + f"Flusso da {eth_src} a {eth_dst} in switch {dpid} bloccato" + RESET)
+                self.logger.info(RED + f"Flusso da {src} a {dst} in switch {dpid} bloccato" + RESET)
                 mod = parser.OFPFlowMod(
                     datapath=dp,
                     priority=1000,
@@ -43,8 +79,10 @@ class PolicyEnforcer(threading.Thread):
                     instructions=[],
                     command=ofp.OFPFC_ADD
                 )
+
+                self.blocklist.add(dpid, src, dst)
             else:
-                self.logger.info(GREEN + f"Flusso da {eth_src} a {eth_dst} in switch {dpid} ripristinato" + RESET)
+                self.logger.info(GREEN + f"Flusso da {src} a {dst} in switch {dpid} ripristinato" + RESET)
                 mod = parser.OFPFlowMod(
                     datapath=dp,
                     priority=1000,
@@ -53,5 +91,7 @@ class PolicyEnforcer(threading.Thread):
                     out_port=ofp.OFPP_ANY,
                     out_group=ofp.OFPG_ANY
                 )
+
+                self.blocklist.remove(dpid, src, dst)
 
             dp.send_msg(mod)

@@ -25,6 +25,7 @@ from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
 
 # Self-made Classes
+from blocklist import Blocklist
 from policy_enforcer import PolicyEnforcer
 from policy_maker import PolicyMaker
 from stats_collector import StatsCollector, Stats
@@ -53,10 +54,13 @@ class SimpleSwitch13(app_manager.RyuApp):
 		self.stats_queue = Queue()
 		self.policy_queue = Queue()
 
+		# Blocklist
+		self.blocklist = Blocklist(filename = 'blocked.json')
+
 		# Classes for modularity
 		self.collector = StatsCollector(self, sleep_time = 5)
 		self.policy_maker = PolicyMaker(self, self.stats_queue, self.policy_queue, treshold=65000)
-		self.policy_enforcer = PolicyEnforcer(self, self.policy_queue)
+		self.policy_enforcer = PolicyEnforcer(self, self.policy_queue, self.blocklist)
 
 		self.collector.start()
 		self.policy_maker.start()
@@ -170,4 +174,3 @@ class SimpleSwitch13(app_manager.RyuApp):
 									actions=actions, 
 									data=data)
 		datapath.send_msg(out)
-

@@ -1,0 +1,14 @@
+{
+    "blocked":[
+        {
+            "dpid": 1,
+            "source": "00:00:00:00:00:01",
+            "destination": "00:00:00:00:00:02"
+        },
+        {
+            "dpid": 4,
+            "source": "00:00:00:00:00:02",
+            "destination": null
+        }
+    ]
+}
