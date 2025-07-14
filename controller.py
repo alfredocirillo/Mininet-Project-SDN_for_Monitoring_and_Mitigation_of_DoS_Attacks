@@ -57,9 +57,11 @@ class SimpleSwitch13(app_manager.RyuApp):
 		# Blocklist
 		self.blocklist = Blocklist(filename = 'blocked.json')
 
+		self.flow_alarm = {}
+
 		# Classes for modularity
 		self.collector = StatsCollector(self, sleep_time = 5)
-		self.policy_maker = PolicyMaker(self, self.stats_queue, self.policy_queue, treshold=65000)
+		self.policy_maker = PolicyMaker(self, self.stats_queue, self.policy_queue, self.flow_alarm, treshold=65000)
 		self.policy_enforcer = PolicyEnforcer(self, self.policy_queue, self.blocklist)
 
 		self.collector.start()
@@ -79,6 +81,25 @@ class SimpleSwitch13(app_manager.RyuApp):
 		# Notifies observers that stats have been collected
 		# In this case the only observer is the policy_maker
 		self.stats_queue.put(Stats(dpid, stats, time_interval))
+
+	# To remove the flow entry from the blocklist once timer expires
+	@set_ev_cls(ofp_event.EventOFPFlowRemoved, MAIN_DISPATCHER)
+	def _flow_timeout_handler(self, ev):
+		msg = ev.msg
+		dp = msg.datapath
+		ofp = dp.ofproto
+
+		if msg.reason == ofp.OFPRR_IDLE_TIMEOUT:
+			dpid = dp.id
+
+			match = msg.match # instance of OSPFMatch used
+			eth_src = match.get('eth_src')
+			eth_dst = match.get('eth_dst')
+			self.blocklist.remove(dpid, eth_src, eth_dst)
+			self.flow_alarm[dpid][(eth_src, eth_dst)][1] = 0 # reset alarm state
+
+			self.logger.info(GREEN + f"Block Policy for flow from {eth_src} to {eth_dst} through switch {dpid} has expired" + RESET)
+			
 
 	# Funzione di aggiunta e rimozione switch dalla struttura datapath
 	@set_ev_cls(ofp_event.EventOFPStateChange, [MAIN_DISPATCHER, DEAD_DISPATCHER])

@@ -3,6 +3,8 @@ import threading
 from stats_collector import Stats
 from queue import Queue
 
+import enum
+
 # Codici di escape ANSI per i colori
 RED = "\033[91m"
 GREEN = "\033[92m"
@@ -16,16 +18,17 @@ class Policy:
     - eth_dst = destination host MAC
     - need_block = boolean
     '''
-    def __init__(self, dpid, eth_src, eth_dst, block):
+    def __init__(self, dpid, eth_src, eth_dst, block_time):
         super().__init__()
         self.dpid = dpid
         self.eth_src = eth_src
         self.eth_dst = eth_dst
-        self.block: bool = block
+        self.block_time = block_time
 
+BASE_TIME = 60 #sec
 
 class PolicyMaker(threading.Thread):
-    def __init__(self, controller, stats_queue, policy_queue, treshold):
+    def __init__(self, controller, stats_queue, policy_queue, flow_alarm, treshold):
         '''
         Receives flow stats and makes blocks/unblocks based on traffic analysis
         '''
@@ -40,7 +43,7 @@ class PolicyMaker(threading.Thread):
 
         # For the flow blocking functions
         self.flow_stats = {}
-        self.flow_alarm = {}
+        self.flow_alarm = flow_alarm
 
         self.logger.info('Policy Maker started')
 
@@ -52,7 +55,7 @@ class PolicyMaker(threading.Thread):
             collected_stats = ev.stats
             time_interval = ev.time_interval
 
-            print(f"Time: {time_interval}")
+            #print(f"Time: {time_interval}")
 
             # Filter flows
             flows = sorted(
@@ -94,7 +97,8 @@ class PolicyMaker(threading.Thread):
                     
                 # Inizializza contatore allarme
                 self.flow_alarm[dpid]={
-                    (stat.match['in_port'], stat.match.get('eth_src'), stat.match.get('eth_dst')) : [0, 0]
+                    # [counter, state, threat_level] with values [ [1,3], {0, 1}, [0, 4] ]
+                    (stat.match.get('eth_src'), stat.match.get('eth_dst')) : [0, 0, 0]
                     for stat in flows
                 }
 
@@ -133,31 +137,32 @@ class PolicyMaker(threading.Thread):
                                         byte_diff / time_interval
                                     )
                     
-                    # Inizializza contatore allarme
-                    if((in_port, eth_src, eth_dst) not in self.flow_alarm[dpid]):
-                        self.flow_alarm[dpid][(in_port, eth_src, eth_dst)] = [0,0]
+                    # Inizializza contatore allarme se non inizializzato
+                    if((eth_src, eth_dst) not in self.flow_alarm[dpid]):
+                        self.flow_alarm[dpid][(eth_src, eth_dst)] = [0, 0, 0]    # add Threat to counter
 
                     # Alarm Management
                     if( (byte_diff/time_interval) > self.treshold): #quando il flusso supera il treshold
-                        if(self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][0] < 3):
-                            self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][0] += 1	#aumenta il contatore
+                        if(self.flow_alarm[dpid][(eth_src, eth_dst)][0] < 3):
+                            self.flow_alarm[dpid][(eth_src, eth_dst)][0] += 1	#aumenta il contatore
                     else: # quando il flusso è nei limiti del treshold
-                        if(self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][0] > 0):
-                            self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][0] -= 1	#diminuisci il contatore
+                        if(self.flow_alarm[dpid][(eth_src, eth_dst)][0] > 0):
+                            self.flow_alarm[dpid][(eth_src, eth_dst)][0] -= 1	#diminuisci il contatore
 
-                    if(self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][0] >= 3):
+                    if(self.flow_alarm[dpid][(eth_src, eth_dst)][0] >= 3):
+                        # Block time
+                        threat_lvl = self.flow_alarm[dpid][(eth_src, eth_dst)][2]
+                        block_time = BASE_TIME * (1 + threat_lvl) # 60, 120, 180, 240, 300 seconds
+
                         # Send block warning through queue
+                        self.policy_q.put(Policy(dpid, eth_src, eth_dst, block_time))
 
-                        self.policy_q.put(Policy(dpid, eth_src, eth_dst, True))
-                        self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][1] == 0
-                    elif(self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][0] == 2 and self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][1] == 1):
-                       
-                        self.logger.info(f"Flusso da {eth_src} a {eth_dst} in switch {dpid} sta tornando nei limiti")
-                    elif(self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][0] == 0 and self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][1] == 1):
-                        # Send unblock warning through queue
+                        # Raise Alarm State for the flow
+                        self.flow_alarm[dpid][(eth_src, eth_dst)][1] = 1
 
-                        self.policy_q.put(Policy(dpid, eth_src, eth_dst, False))
-                        self.flow_alarm[dpid][(in_port, eth_src, eth_dst)][1] == 0
+                        # Update the flow's ThreatLevel
+                        if self.flow_alarm[dpid][(eth_src, eth_dst)][2] < 4:
+                            self.flow_alarm[dpid][(eth_src, eth_dst)][2] += 1
 
                 # Aggiorna stats
                 self.flow_stats[dpid] = {

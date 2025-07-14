@@ -23,6 +23,7 @@ class PolicyEnforcer(threading.Thread):
     def run(self):
         # Load blocklist and enforce it
         # At startup the blocklist will contain only the admin-enforced blocks
+        # These blocks are permanent
         while not self.controller.datapaths:
             time.sleep(3)
             
@@ -56,7 +57,7 @@ class PolicyEnforcer(threading.Thread):
             dpid = ev.dpid
             src = ev.eth_src
             dst = ev.eth_dst
-            block = ev.block
+            block_time = ev.block_time
 
             # Avoid modifying policies set from external agents
             if (dpid, src, dst) in self.blocklist.ext_blocked:
@@ -70,28 +71,18 @@ class PolicyEnforcer(threading.Thread):
             ofp = dp.ofproto
             match = parser.OFPMatch(eth_src = src, eth_dst = dst)
 
-            if block:
-                self.logger.info(RED + f"Flusso da {src} a {dst} in switch {dpid} bloccato" + RESET)
-                mod = parser.OFPFlowMod(
-                    datapath=dp,
-                    priority=1000,
-                    match=match,
-                    instructions=[],
-                    command=ofp.OFPFC_ADD
-                )
+            
+            self.logger.info(RED + f"Flow from {src} to {dst} through switch {dpid} blocked" + RESET)
+            mod = parser.OFPFlowMod(
+                datapath=dp,
+                priority=1000,
+                match=match,
+                instructions=[],
+                idle_timeout = block_time,
+                command = ofp.OFPFC_ADD,
+                flags = ofp.OFPFF_SEND_FLOW_REM #to alert controller once mod expires
+            )
 
-                self.blocklist.add(dpid, src, dst)
-            else:
-                self.logger.info(GREEN + f"Flusso da {src} a {dst} in switch {dpid} ripristinato" + RESET)
-                mod = parser.OFPFlowMod(
-                    datapath=dp,
-                    priority=1000,
-                    match=match,
-                    command=ofp.OFPFC_DELETE,
-                    out_port=ofp.OFPP_ANY,
-                    out_group=ofp.OFPG_ANY
-                )
-
-                self.blocklist.remove(dpid, src, dst)
+            self.blocklist.add(dpid, src, dst)
 
             dp.send_msg(mod)
