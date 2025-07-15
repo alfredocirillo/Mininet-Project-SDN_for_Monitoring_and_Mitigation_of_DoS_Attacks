@@ -18,27 +18,49 @@ class Environment(object):
         c1 = self.net.addController( 'c1', controller=RemoteController) #Controller
         c1.start()
         
-        #definition of hosts
+        # Hosts
         info("*** Adding hosts and switches\n")
         self.h1 = self.net.addHost('h1', mac='00:00:00:00:00:01', ip= '10.0.0.1')
         self.h2 = self.net.addHost('h2', mac='00:00:00:00:00:02', ip= '10.0.0.2')
         self.h3 = self.net.addHost('h3', mac='00:00:00:00:00:03', ip= '10.0.0.3')
-        self.h4 = self.net.addHost('h4', mac='00:00:00:00:00:04', ip= '10.0.0.4') #newhost
+
+        self.h4 = self.net.addHost('h4', mac='00:00:00:00:00:04', ip= '10.0.0.4')
+        self.h5 = self.net.addHost('h5', mac='00:00:00:00:00:05', ip= '10.0.0.5')
+        self.h6 = self.net.addHost('h6', mac='00:00:00:00:00:06', ip= '10.0.0.6')
+
+        self.h7 = self.net.addHost('h7', mac='00:00:00:00:00:07', ip= '10.0.0.7')
+        self.h8 = self.net.addHost('h8', mac='00:00:00:00:00:08', ip= '10.0.0.8')
+        self.h9 = self.net.addHost('h9', mac='00:00:00:00:00:09', ip= '10.0.0.9')
         
-        #definition of switches
+        # Switches
         self.s1 = self.net.addSwitch('s1', cls=OVSKernelSwitch)
         self.s2 = self.net.addSwitch('s2', cls=OVSKernelSwitch)
         self.s3 = self.net.addSwitch('s3', cls=OVSKernelSwitch)
+
         self.s4 = self.net.addSwitch('s4', cls=OVSKernelSwitch)
+        self.s5 = self.net.addSwitch('s5', cls=OVSKernelSwitch)
 
         info("*** Adding links\n")
+        # S1 links
         self.net.addLink(self.h1, self.s1, bw=10, delay='0.0025ms')
-        self.net.addLink(self.h4, self.s1, bw=10, delay='0.0025ms') # h4 linked to same switch as h1
-        self.s1_to_s3 = self.net.addLink(self.s1, self.s3, bw=6, delay='25ms')
-        self.net.addLink(self.h2, self.s2, bw=10, delay='0.0025ms')
-        self.s2_to_s3 = self.net.addLink(self.s2, self.s3, bw=6, delay='25ms')
-        self.s3_to_s4 = self.net.addLink(self.s3, self.s4, bw=6, delay='25ms')
-        self.net.addLink(self.s4, self.h3, bw=10, delay='0.0025ms')
+        self.net.addLink(self.h2, self.s1, bw=10, delay='0.0025ms')        
+        self.net.addLink(self.h3, self.s1, bw=10, delay='0.0025ms')
+
+        # S2 links
+        self.net.addLink(self.h4, self.s2, bw=10, delay='0.0025ms')
+        self.net.addLink(self.h5, self.s2, bw=10, delay='0.0025ms')
+        self.net.addLink(self.h6, self.s2, bw=10, delay='0.0025ms')
+
+        # S3 links
+        self.net.addLink(self.h7, self.s3, bw=10, delay='0.0025ms')
+        self.net.addLink(self.h8, self.s3, bw=10, delay='0.0025ms')
+        self.net.addLink(self.h9, self.s3, bw=10, delay='0.0025ms')
+
+        # Switch-to-switch
+        self.s1_to_s4 = self.net.addLink(self.s1, self.s4, bw=6, delay='25ms')
+        self.s2_to_s4 = self.net.addLink(self.s2, self.s4, bw=6, delay='25ms')        
+        self.s2_to_s5 = self.net.addLink(self.s2, self.s5, bw=6, delay='25ms')
+        self.s3_to_s5 = self.net.addLink(self.s3, self.s5, bw=6, delay='25ms')
             
         info("*** Starting network\n")
         self.net.build()
