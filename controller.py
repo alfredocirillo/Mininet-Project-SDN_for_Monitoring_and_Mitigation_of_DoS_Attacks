@@ -23,8 +23,10 @@ from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet
 from ryu.lib.packet import ethernet
 from ryu.lib.packet import ether_types
+from ryu.app.wsgi import WSGIApplication
 
 # Self-made Classes
+from block_server import BlockServer
 from blocklist import Blocklist
 from policy_enforcer import PolicyEnforcer
 from policy_maker import PolicyMaker
@@ -40,6 +42,9 @@ RESET = "\033[0m"
 
 class SimpleSwitch13(app_manager.RyuApp):
 	OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
+	_CONTEXTS = {
+		'wsgi': WSGIApplication
+	}
 
 	global RED
 	global RESET
@@ -56,6 +61,10 @@ class SimpleSwitch13(app_manager.RyuApp):
 
 		# Blocklist
 		self.blocklist = Blocklist(filename = 'blocked.json')
+
+		# Start BlockServer
+		self.wsgi = kwargs.pop('wsgi')
+		self.wsgi.register(BlockServer, {'controller': self, 'queue': self.policy_queue})
 
 		self.flow_alarm = {}
 

@@ -58,10 +58,7 @@ class PolicyEnforcer(threading.Thread):
             src = ev.eth_src
             dst = ev.eth_dst
             block_time = ev.block_time
-
-            # Avoid modifying policies set from external agents
-            if (dpid, src, dst) in self.blocklist.ext_blocked:
-                continue
+            block:bool = ev.block
 
             dp = self.controller.datapaths.get(dpid)
             if not dp:
@@ -69,20 +66,43 @@ class PolicyEnforcer(threading.Thread):
 
             parser = dp.ofproto_parser
             ofp = dp.ofproto
-            match = parser.OFPMatch(eth_src = src, eth_dst = dst)
-
             
-            self.logger.info(RED + f"Flow from {src} to {dst} through switch {dpid} blocked" + RESET)
-            mod = parser.OFPFlowMod(
-                datapath=dp,
-                priority=1000,
-                match=match,
-                instructions=[],
-                idle_timeout = block_time,
-                command = ofp.OFPFC_ADD,
-                flags = ofp.OFPFF_SEND_FLOW_REM #to alert controller once mod expires
-            )
+            if dst:
+                match = parser.OFPMatch(eth_src = src, eth_dst = dst)
+            else:
+                match = parser.OFPMatch(eth_src = src)
 
-            self.blocklist.add(dpid, src, dst)
+            if block and block_time > 0:
+                self.logger.info(RED + f"Flow from {src} to {dst} through switch {dpid} blocked by controller" + RESET)
+                mod = parser.OFPFlowMod(
+                    datapath=dp,
+                    priority=1000,
+                    match=match,
+                    instructions=[],
+                    idle_timeout = block_time,
+                    command = ofp.OFPFC_ADD,
+                    flags = ofp.OFPFF_SEND_FLOW_REM #to alert controller once mod expires
+                )
+                self.blocklist.add(dpid, src, dst)
+            elif block and block_time <0:
+                self.logger.info(RED + f"Flow from {src} to {dst} through switch {dpid} blocked by request" + RESET)
+                mod = parser.OFPFlowMod(
+                    datapath=dp,
+                    priority=1000,
+                    match=match,
+                    instructions=[],
+                    command = ofp.OFPFC_ADD,
+                )
+                self.blocklist.add(dpid, src, dst)
+            elif not block:
+                self.logger.info(GREEN + f"Flow from {src} to {dst} through switch {dpid} unblocked by request" + RESET)
+                mod = parser.OFPFlowMod(
+                    datapath=dp,
+                    priority=1000,
+                    match=match,
+                    instructions=[],
+                    command = ofp.OFPFC_DELETE,
+                )
+                self.blocklist.remove(dpid, src, dst)
 
             dp.send_msg(mod)

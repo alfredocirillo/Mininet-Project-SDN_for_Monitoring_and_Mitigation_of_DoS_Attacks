@@ -18,12 +18,13 @@ class Policy:
     - eth_dst = destination host MAC
     - need_block = boolean
     '''
-    def __init__(self, dpid, eth_src, eth_dst, block_time):
+    def __init__(self, dpid, eth_src, eth_dst, block_time, block:bool = True):
         super().__init__()
         self.dpid = dpid
         self.eth_src = eth_src
         self.eth_dst = eth_dst
         self.block_time = block_time
+        self.block = block
 
 BASE_TIME = 60 #sec
 
